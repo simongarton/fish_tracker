@@ -1,4 +1,5 @@
 from doctest import FAIL_FAST
+from random import randint
 from turtle import pos
 import numpy as np
 import imutils
@@ -17,18 +18,23 @@ TRAIL_COLOR = (50, 255, 0)
 TRAIL_LINE_WIDTH = 2
 TRAIL_POINT_SIZE = 2
 MAX_TRAIL_POINTS = 400
+DRAW_BOX = False
 DRAW_TRAIL_POINTS = False
 DRAW_TRAIL = False
 DRAW_SMOOTH_TRAIL = True
 DRAW_ID = True
 TRAIL_WIDTH = 2
 SMOOTH_TRAIL_WIDTH = 3
+DRAW_STATS = True
 
 SHOW_VISION = False
 
 
 bad_frames = 0
 fish_count = 0
+width = 0
+height = 0
+picture_count = 0
 
 
 def make_fish(x, y, w, h):
@@ -89,8 +95,9 @@ def smooth(points):
 def draw_fish(frame, fish):
     # draw the bounding box of the fish. this is not working well, it's picking up only tiny changes
     # when the fish is moving slowly ...
-    cv.rectangle(
-        frame, (fish['x'], fish['y']), (fish['x'] + fish['w'], fish['y'] + fish['h']), FISH_COLOR, FISH_LINE_WIDTH)
+    if DRAW_BOX:
+        cv.rectangle(
+            frame, (fish['x'], fish['y']), (fish['x'] + fish['w'], fish['y'] + fish['h']), FISH_COLOR, FISH_LINE_WIDTH)
     # draw the last 100 trail points
     if DRAW_TRAIL_POINTS:
         for point in fish['points']:
@@ -104,8 +111,11 @@ def draw_fish(frame, fish):
     if DRAW_SMOOTH_TRAIL:
         points = np.array(smooth(fish['points']))
         points = points.reshape((-1, 1, 2))
-        cv.polylines(frame, [points], False, (0, 255, 0), SMOOTH_TRAIL_WIDTH)
-    # draw name
+        cv.polylines(frame, [points], False, fish['color'], SMOOTH_TRAIL_WIDTH)
+
+
+def draw_fish_id(frame, fish):
+    # draw id
     if DRAW_ID and len(fish['points']) > 0:
         font = cv.FONT_HERSHEY_SIMPLEX
         point = average_point(fish, 10)
@@ -129,12 +139,17 @@ def match_possible_fish_to_fishes(fishes, possible_fish):
             return
     possible_fish['age'] = 5
     possible_fish['id'] = fish_count
+    possible_fish['color'] = (
+        randint(50,  255), randint(50,  255), randint(50,  255))
     fish_count = fish_count + 1
 
     fishes.append(possible_fish)
 
 
 def setup_video(args):
+
+    global width
+    global height
 
     if len(args) == 1:
         # WebCam : 0 is built in, 1 is USB
@@ -204,9 +219,29 @@ def update_fishes(fishes, frame):
             continue
 
         draw_fish(frame, fish)
+    for fish in fishes:
+        draw_fish_id(frame, fish)
+    if DRAW_STATS:
+        draw_stats(frame, fishes)
+
+
+def draw_stats(frame, fishes):
+    global width
+    global height
+    global fish_count
+    cv.rectangle(frame, (width - 250, height - 100),
+                 (width, height), (0, 0, 0), -1)
+    font = cv.FONT_HERSHEY_SIMPLEX
+    cv.putText(frame, 'current {}'.format(len(fishes)), (width - 220, height - 60), font,
+               1, (255, 255, 255), 2, cv.LINE_AA)
+    cv.putText(frame, 'total   {}'.format(fish_count), (width - 220, height - 20), font,
+               1, (255, 255, 255), 2, cv.LINE_AA)
 
 
 def run(args):
+
+    global bad_frames
+    global picture_count
 
     cap, out = setup_video(args)
 
@@ -236,6 +271,10 @@ def run(args):
 
         if cv.waitKey(1) == ord('q'):
             break
+        if cv.waitKey(1) == ord('p'):
+            print('saving pictures/{}.png'.format(picture_count))
+            cv.imwrite('pictures/{}.png'.format(picture_count), frame)
+            picture_count = picture_count + 1
 
         firstFrame = gray_smooth
 
