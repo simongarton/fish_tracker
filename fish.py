@@ -32,7 +32,6 @@ TRAIL_WIDTH = 2
 SMOOTH_TRAIL_WIDTH = 3
 DRAW_STATS = True
 
-SHOW_PANELS = True
 SHOW_VISION = False
 SHOW_DELTA = False
 SHOW_THRESH = False
@@ -43,6 +42,7 @@ fish_count = 0
 width = 0
 height = 0
 picture_count = 0
+show_panels = True
 
 font = cv.FONT_HERSHEY_SIMPLEX
 
@@ -258,6 +258,7 @@ def run(args):
     global width
     global height
     global font
+    global show_panels
 
     slide = 0
 
@@ -290,7 +291,7 @@ def run(args):
         if SHOW_THRESH:
             cv.imshow('thresh', thresh)
 
-        if SHOW_VISION or SHOW_PANELS:
+        if SHOW_VISION or show_panels:
             backtorgb = cv.cvtColor(gray, cv.COLOR_GRAY2RGB)
             cv.drawContours(backtorgb, cnts, -1,
                             CONTOUR_COLOR, SMOOTH_TRAIL_WIDTH)
@@ -302,27 +303,34 @@ def run(args):
             if SHOW_VISION:
                 cv.imshow('vision-view', backtorgb)
 
-            if SHOW_PANELS:
+            if show_panels:
                 quarter = int(width / 4)
-                x = (0 + slide) % width
+                extra_width = width + quarter
+                x = ((0 + slide) % extra_width) - quarter
+                a = x if x >= 0 else 0
+                w = quarter if x >= 0 else quarter + x
                 working = backtorgb
-                frame[0:height, x:x + quarter] = working[0:height, x:x + quarter]
+                frame[0:height, a:a + w] = working[0:height, a:a + w]
                 cv.putText(frame, 'contours and bb', (x, 30), font,
                            1, (255, 255, 255), 2, cv.LINE_AA)
-                x = (quarter + slide) % width
+                x = ((quarter + slide) % extra_width) - quarter
+                a = x if x >= 0 else 0
+                w = quarter if x >= 0 else quarter + x
                 working = cv.cvtColor(thresh, cv.COLOR_GRAY2RGB)
-                frame[0:height, x:x + quarter] = working[0:height, x:x + quarter]
+                frame[0:height, a:a + w] = working[0:height, a:a + w]
                 cv.putText(frame, 'dilated threshold', (x, 30), font,
                            1, (255, 255, 255), 2, cv.LINE_AA)
-                x = (2 * quarter + slide) % width
+                x = ((2 * quarter + slide) % extra_width) - quarter
+                a = x if x >= 0 else 0
+                w = quarter if x >= 0 else quarter + x
                 working = cv.cvtColor(frameDelta, cv.COLOR_GRAY2RGB)
-                frame[0:height, x:x + quarter] = working[0:height, x:x + quarter]
+                frame[0:height, a:a + w] = working[0:height, a:a + w]
                 cv.putText(frame, 'image deltas', (x, 30), font,
                            1, (255, 255, 255), 2, cv.LINE_AA)
-                slide = slide + 10
-                x = (-quarter + slide) % width
+                x = ((-quarter + slide) % extra_width) - quarter
                 cv.putText(frame, 'result', (x, 30), font,
                            1, (255, 255, 255), 2, cv.LINE_AA)
+                slide = slide + 10
 
         if DRAW_STATS:
             draw_stats(frame, fishes, active)
@@ -331,11 +339,14 @@ def run(args):
 
         out.write(frame)
 
-        if cv.waitKey(1) == ord('p'):
+        key = cv.waitKey(1)
+        if key == ord('t'):
+            show_panels = not show_panels
+        if key == ord('p'):
             print('saving images/{}.png'.format(picture_count))
             cv.imwrite('images/{}.png'.format(picture_count), frame)
             picture_count = picture_count + 1
-        if cv.waitKey(1) == ord('q'):
+        if key == ord('q'):
             break
 
         firstFrame = gray_smooth
