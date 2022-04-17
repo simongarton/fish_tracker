@@ -1,22 +1,25 @@
 from doctest import FAIL_FAST
+from turtle import pos
 import numpy as np
 import imutils
 import cv2 as cv
 import sys
 
-MAX_DELTA = 100  # how far a fish might move before I decide it's too fast for a fish
+MAX_DELTA = 75  # how far a fish might move before I decide it's too fast for a fish
 
 SCAN_COLOR = (255, 255, 255)
 SCAN_LINE_WIDTH = 1
 
-FISH_COLOR = (200, 50, 0)
+FISH_COLOR = (255, 255, 255)
 FISH_LINE_WIDTH = 2
 
 TRAIL_COLOR = (50, 255, 0)
 TRAIL_LINE_WIDTH = 2
 TRAIL_POINT_SIZE = 2
-DRAW_TRAIL_POINTS = True
-DRAW_TRAIL = False
+MAX_TRAIL_POINTS = 100
+DRAW_TRAIL_POINTS = False
+DRAW_TRAIL = True
+DRAW_ID = True
 
 SHOW_VISION = False
 
@@ -67,20 +70,29 @@ def draw_fish(frame, fish):
         points = np.array(fish['points'])
         points = points.reshape((-1, 1, 2))
         cv.polylines(frame, [points], False, (0, 255, 0), 1)
+    # draw name
+    if DRAW_ID:
+        font = cv.FONT_HERSHEY_SIMPLEX
+        cv.putText(frame, str(fish['id']), (fish['x'], fish['y']), font,
+                   1, (255, 255, 255), 2, cv.LINE_AA)
 
 
 def match_possible_fish_to_fishes(fishes, possible_fish):
+    global fish_count
     for fish in fishes:
         if close_enough(fish, possible_fish):
             point = (fish['x'], fish['y'])
             fish['points'].append(point)
-            if len(fish['points']) > 100:
+            if len(fish['points']) > MAX_TRAIL_POINTS:
                 fish['points'].remove(fish['points'][0])
             fish['x'] = possible_fish['x']
             fish['y'] = possible_fish['y']
             fish['age'] = fish['age'] + 5 if fish['age'] < 100 else fish['age']
             return
     possible_fish['age'] = 5
+    possible_fish['id'] = fish_count
+    fish_count = fish_count + 1
+
     fishes.append(possible_fish)
 
 
@@ -107,9 +119,58 @@ def setup_video(args):
     return cap, out
 
 
+def find_contours(frame, firstFrame, avg):
+    gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
+    gray_smooth = cv.GaussianBlur(gray, (21, 21), 0)
+    if len(firstFrame) == 0:
+        firstFrame = gray_smooth
+
+    if avg is None:
+        avg = gray.copy().astype("float")
+        return [], gray, gray_smooth, avg
+
+    frameDelta = cv.absdiff(firstFrame, gray_smooth)
+
+    cv.accumulateWeighted(gray, avg, 0.5)
+
+    thresh = cv.threshold(frameDelta, 25, 255, cv.THRESH_BINARY)[1]
+    thresh = cv.dilate(thresh, None, iterations=1)
+
+    cnts = cv.findContours(thresh.copy(), cv.RETR_EXTERNAL,
+                           cv.CHAIN_APPROX_SIMPLE)
+    cnts = imutils.grab_contours(cnts)
+
+    return cnts, gray, gray_smooth, avg
+
+
+def manage_fishes(cnts, fishes, gray):
+    # We loop over all the bbs of the contours that I can find.
+    # For each one, I check to see if it matches - with some approximation - a fish
+    # If so, I add ten to the fish's value
+    # If not, I create a new fish with value 5
+
+    for c in cnts:
+        if cv.contourArea(c) < 20:  # conf["min_area"]:
+            continue
+        (x, y, w, h) = cv.boundingRect(c)
+        possible_fish = make_fish(x, y, w, h)
+        draw_possible_fish(gray, possible_fish)
+        match_possible_fish_to_fishes(fishes, possible_fish)
+
+
+def update_fishes(fishes, frame):
+    for fish in fishes:
+        fish['age'] = fish['age'] - 1
+        if fish['age'] < 0:
+            fishes.remove(fish)
+            continue
+
+        draw_fish(frame, fish)
+
+
 def run(args):
 
-    (cap, out) = setup_video(args)
+    cap, out = setup_video(args)
 
     fishes = []
 
@@ -124,46 +185,11 @@ def run(args):
                 break
             continue
 
-        gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
-        gray_smooth = cv.GaussianBlur(gray, (21, 21), 0)
-        if len(firstFrame) == 0:
-            firstFrame = gray_smooth
+        cnts, gray, gray_smooth, avg = find_contours(frame, firstFrame, avg)
 
-        if avg is None:
-            avg = gray.copy().astype("float")
-            continue
+        manage_fishes(cnts, fishes, gray)
 
-        frameDelta = cv.absdiff(firstFrame, gray_smooth)
-
-        cv.accumulateWeighted(gray, avg, 0.5)
-
-        thresh = cv.threshold(frameDelta, 25, 255, cv.THRESH_BINARY)[1]
-        thresh = cv.dilate(thresh, None, iterations=1)
-
-        cnts = cv.findContours(thresh.copy(), cv.RETR_EXTERNAL,
-                               cv.CHAIN_APPROX_SIMPLE)
-        cnts = imutils.grab_contours(cnts)
-
-        # We loop over all the bbs of the contours that I can find.
-        # For each one, I check to see if it matches - with some approximation - a fish
-        # If so, I add ten to the fish's value
-        # If not, I create a new fish with value 5
-
-        for c in cnts:
-            if cv.contourArea(c) < 20:  # conf["min_area"]:
-                continue
-            (x, y, w, h) = cv.boundingRect(c)
-            possible_fish = make_fish(x, y, w, h)
-            draw_possible_fish(gray, possible_fish)
-            match_possible_fish_to_fishes(fishes, possible_fish)
-
-        for fish in fishes:
-            fish['age'] = fish['age'] - 1
-            if fish['age'] < 0:
-                fishes.remove(fish)
-                continue
-
-            draw_fish(frame, fish)
+        update_fishes(fishes, frame)
 
         cv.imshow('tank-view', frame)
         if SHOW_VISION:
