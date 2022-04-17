@@ -131,6 +131,7 @@ def draw_fish_id(frame, fish):
 
 
 def match_possible_fish_to_fishes(fishes, possible_fish):
+    # work out if this possible fish is close enough to any of the known fishes to be the same one
     global fish_count
     for fish in fishes:
         if close_enough(fish, possible_fish):
@@ -158,7 +159,7 @@ def setup_video(args):
     global height
 
     if len(args) == 1:
-        # WebCam : 0 is built in, 1 is USB
+        # WebCams : 0 is built in, 1 is USB
         cap = cv.VideoCapture(1)
     else:
         # Stream from MP4
@@ -172,44 +173,42 @@ def setup_video(args):
     height = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
     fps = cap.get(cv.CAP_PROP_FPS)
 
+    # capture what I create
     out = cv.VideoWriter(
         'out/out.avi', cv.VideoWriter_fourcc('M', 'J', 'P', 'G'), fps, (width, height))
 
     return cap, out
 
 
-def find_contours(frame, firstFrame):
+def find_contours(frame, previous_frame):
+    # take the image, grey scale it and smooth it
     gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
     gray_smooth = cv.GaussianBlur(gray, (21, 21), 0)
-    if len(firstFrame) == 0:
-        firstFrame = gray_smooth
+    # I need a previous frame for the delta
+    if len(previous_frame) == 0:
+        return [], gray, gray_smooth, [], None
 
-    frameDelta = cv.absdiff(firstFrame, gray_smooth)
+    frame_delta = cv.absdiff(previous_frame, gray_smooth)
 
-    thresh = cv.threshold(frameDelta, 20, 255, cv.THRESH_BINARY)[1]
-    thresh = cv.dilate(thresh, None, iterations=10)  # this is hight
-
+    # threshold the image. lower than 20 picks up more fish, but more speckles
+    thresh = cv.threshold(frame_delta, 20, 255, cv.THRESH_BINARY)[1]
+    # dilate the results to make them bigger
+    thresh = cv.dilate(thresh, None, iterations=10)
+    # find the contours
     cnts = cv.findContours(thresh.copy(), cv.RETR_EXTERNAL,
                            cv.CHAIN_APPROX_SIMPLE)
+    # just a utility to handle different versions of OpenCV
     cnts = imutils.grab_contours(cnts)
 
-    return cnts, gray, gray_smooth, frameDelta, thresh
+    return cnts, gray, gray_smooth, frame_delta, thresh
 
 
 def manage_fishes(cnts, fishes):
-    # We loop over all the bbs of the contours that I can find.
-    # For each one, I check to see if it matches - with some approximation - a fish
-    # If so, I add ten to the fish's value
-    # If not, I create a new fish with value 5
-
     for c in cnts:
-        if cv.contourArea(c) < 20:  # conf["min_area"]:
+        # minimum area of contour, trying to avoid noise. 200 and 20 both OK
+        if cv.contourArea(c) < 20:
             continue
         (x, y, w, h) = cv.boundingRect(c)
-        if w < 20:
-            w = 20
-        if h < 10:
-            h = 10
         possible_fish = create_fish(x, y, w, h)
         match_possible_fish_to_fishes(fishes, possible_fish)
 
@@ -244,7 +243,7 @@ def draw_stats(frame, fishes, active):
                1, (255, 255, 255), 2, cv.LINE_AA)
 
 
-def show_sliding_panels(frame, backtorgb, thresh, frameDelta):
+def show_sliding_panels(frame, backtorgb, thresh, frame_delta):
     global slide
 
     quarter = int(width / 4)
@@ -266,12 +265,12 @@ def show_sliding_panels(frame, backtorgb, thresh, frameDelta):
     x = ((2 * quarter + slide) % extra_width) - quarter
     a = x if x >= 0 else 0
     w = quarter if x >= 0 else quarter + x
-    working = cv.cvtColor(frameDelta, cv.COLOR_GRAY2RGB)
+    working = cv.cvtColor(frame_delta, cv.COLOR_GRAY2RGB)
     frame[0:height, a:a + w] = working[0:height, a:a + w]
     cv.putText(frame, 'image deltas', (x, 30), font,
                1, (255, 255, 255), 2, cv.LINE_AA)
     x = ((-quarter + slide) % extra_width) - quarter
-    cv.putText(frame, 'result', (x, 30), font,
+    cv.putText(frame, 'plotted', (x, 30), font,
                1, (255, 255, 255), 2, cv.LINE_AA)
     slide = slide + 10
 
@@ -285,12 +284,12 @@ def run(args):
     global show_panels
 
     bad_frames = 0
+    gray_smooth = []  # has to be an array rather than None
 
     cap, out = setup_video(args)
 
     fishes = []
 
-    firstFrame = []
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -300,18 +299,18 @@ def run(args):
                 break
             continue
 
-        cnts, gray, gray_smooth, frameDelta, thresh = find_contours(
-            frame, firstFrame)
+        cnts, gray, gray_smooth, frame_delta, thresh = find_contours(
+            frame, gray_smooth)
+        if len(frame_delta) == 0:
+            continue
 
         manage_fishes(cnts, fishes)
 
         active = update_fishes(fishes, frame)
 
-        # this is nice to see the actual changes
         if SHOW_DELTA:
-            cv.imshow('delta', frameDelta)
+            cv.imshow('delta', frame_delta)
 
-        # threshold and dilate the changes
         if SHOW_THRESH:
             cv.imshow('thresh', thresh)
 
@@ -328,7 +327,7 @@ def run(args):
                 cv.imshow('vision-view', backtorgb)
 
             if show_panels:
-                show_sliding_panels(frame, backtorgb, thresh, frameDelta)
+                show_sliding_panels(frame, backtorgb, thresh, frame_delta)
 
         if DRAW_STATS:
             draw_stats(frame, fishes, active)
@@ -339,15 +338,16 @@ def run(args):
 
         key = cv.waitKey(1)
         if key == ord('t'):
+            # toggle the panels
             show_panels = not show_panels
         if key == ord('p'):
+            # save a screenshot
             print('saving images/{}.png'.format(image_count))
             cv.imwrite('images/{}.png'.format(image_count), frame)
             image_count = image_count + 1
         if key == ord('q'):
+            # quit
             break
-
-        firstFrame = gray_smooth
 
     cap.release()
     out.release()
@@ -355,6 +355,7 @@ def run(args):
 
 
 if __name__ == '__main__':
+    # clean out the screenshots
     try:
         shutil.rmtree('images')
     except FileNotFoundError:
