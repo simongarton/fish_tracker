@@ -9,6 +9,7 @@ import shutil
 import os
 
 MAX_DELTA = 75  # how far a fish might move before I decide it's too fast for a fish
+MAX_AGE = 10
 
 SCAN_COLOR = (255, 255, 255)
 SCAN_LINE_WIDTH = 1
@@ -32,6 +33,8 @@ SMOOTH_TRAIL_WIDTH = 3
 DRAW_STATS = True
 
 SHOW_VISION = True
+SHOW_DELTA = False
+SHOW_THRESH = False
 
 
 bad_frames = 0
@@ -123,9 +126,11 @@ def draw_fish_id(frame, fish):
     if DRAW_ID and len(fish['points']) > 0:
         font = cv.FONT_HERSHEY_SIMPLEX
         point = average_point(fish, 10)
+        displaced_point = (int(point[0] + fish['w']/2),
+                           int(point[1] + fish['h']/1))
         # cv.putText(frame, str(fish['id']), (fish['x'], fish['y']), font,
         #            1, (0, 255, 255), 2, cv.LINE_AA)
-        cv.putText(frame, str(fish['id']), point, font,
+        cv.putText(frame, str(fish['id']), displaced_point, font,
                    1, (255, 255, 255), 2, cv.LINE_AA)
 
 
@@ -139,7 +144,8 @@ def match_possible_fish_to_fishes(fishes, possible_fish):
                 fish['points'].remove(fish['points'][0])
             fish['x'] = possible_fish['x']
             fish['y'] = possible_fish['y']
-            fish['age'] = fish['age'] + 5 if fish['age'] < 100 else fish['age']
+            fish['age'] = fish['age'] + \
+                5 if fish['age'] < MAX_AGE else fish['age']
             return
     possible_fish['age'] = 5
     possible_fish['id'] = fish_count
@@ -186,12 +192,20 @@ def find_contours(frame, firstFrame, avg):
         avg = gray.copy().astype("float")
         return [], gray, gray_smooth, avg
 
+    # this is nice to see the actual changes
     frameDelta = cv.absdiff(firstFrame, gray_smooth)
+    if SHOW_DELTA:
+        cv.imshow('delta', frameDelta)
 
+    # is this doing anything ?
     cv.accumulateWeighted(gray, avg, 0.5)
 
-    thresh = cv.threshold(frameDelta, 25, 255, cv.THRESH_BINARY)[1]
-    thresh = cv.dilate(thresh, None, iterations=1)
+    thresh = cv.threshold(frameDelta, 20, 255, cv.THRESH_BINARY)[1]
+    thresh = cv.dilate(thresh, None, iterations=10)  # this is hight
+
+    # threshold and dilate the changes
+    if SHOW_THRESH:
+        cv.imshow('thresh', thresh)
 
     cnts = cv.findContours(thresh.copy(), cv.RETR_EXTERNAL,
                            cv.CHAIN_APPROX_SIMPLE)
@@ -210,6 +224,10 @@ def manage_fishes(cnts, fishes):
         if cv.contourArea(c) < 20:  # conf["min_area"]:
             continue
         (x, y, w, h) = cv.boundingRect(c)
+        if w < 20:
+            w = 20
+        if h < 10:
+            h = 10
         possible_fish = make_fish(x, y, w, h)
         match_possible_fish_to_fishes(fishes, possible_fish)
 
@@ -261,7 +279,8 @@ def run(args):
                 break
             continue
 
-        cnts, gray, gray_smooth, avg = find_contours(frame, firstFrame, avg)
+        cnts, gray, gray_smooth, avg = find_contours(
+            frame, firstFrame, avg)
 
         manage_fishes(cnts, fishes)
 
