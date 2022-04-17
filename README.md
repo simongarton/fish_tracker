@@ -55,3 +55,9 @@ I fairly quickly was able to snapshot 100x100 pixels around each fish ...
 ... but the next bit is hard. I want some way of getting the most dominant color, or counting how many pixels of each color there are ... but I need to generate contours and apply a mask first. With that done, I ran a rough count of how many red, blue and green pixels there were - splitting into each channel and assuming a limit - and came up with a very approximate classification. And it sort of works ...
 
 ![alt text](screenshots/classified.png 'Tetras, plants and guppies')
+
+## Overall
+
+I added a feature to show all the classification going on, as panels across the main image (which move across.)
+
+![alt text](screenshots/tank-view.png 'Panels')
