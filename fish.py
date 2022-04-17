@@ -9,7 +9,7 @@ import shutil
 import os
 
 MAX_DELTA = 75  # how far a fish might move before I decide it's too fast for a fish
-MAX_AGE = 10
+MAX_AGE = 50
 
 SCAN_COLOR = (255, 255, 255)
 SCAN_LINE_WIDTH = 1
@@ -227,27 +227,30 @@ def manage_fishes(cnts, fishes):
 
 
 def update_fishes(fishes, frame):
+    active = 0
     for fish in fishes:
         fish['age'] = fish['age'] - 1
         if fish['age'] < 0:
-            fishes.remove(fish)
+            # fishes.remove(fish)
             continue
+        active = active + 1
 
-        draw_fish(frame, fish)
     for fish in fishes:
-        draw_fish_id(frame, fish)
+        if fish['age'] > 0:
+            draw_fish(frame, fish)
+            draw_fish_id(frame, fish)
     if DRAW_STATS:
-        draw_stats(frame, fishes)
+        draw_stats(frame, fishes, active)
 
 
-def draw_stats(frame, fishes):
+def draw_stats(frame, fishes, active):
     global width
     global height
     global fish_count
     cv.rectangle(frame, (width - 250, height - 100),
                  (width, height), (0, 0, 0), -1)
     font = cv.FONT_HERSHEY_SIMPLEX
-    cv.putText(frame, 'current {}'.format(len(fishes)), (width - 220, height - 60), font,
+    cv.putText(frame, 'active {}'.format(active), (width - 220, height - 60), font,
                1, (255, 255, 255), 2, cv.LINE_AA)
     cv.putText(frame, 'total   {}'.format(fish_count), (width - 220, height - 20), font,
                1, (255, 255, 255), 2, cv.LINE_AA)
