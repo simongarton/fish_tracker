@@ -13,6 +13,8 @@ MAX_DELTA = 75  # how far a fish might move before I decide it's too fast for a 
 SCAN_COLOR = (255, 255, 255)
 SCAN_LINE_WIDTH = 1
 
+CONTOUR_COLOR = (0, 255, 0)
+
 FISH_COLOR = (255, 255, 255)
 FISH_LINE_WIDTH = 2
 
@@ -29,7 +31,7 @@ TRAIL_WIDTH = 2
 SMOOTH_TRAIL_WIDTH = 3
 DRAW_STATS = True
 
-SHOW_VISION = False
+SHOW_VISION = True
 
 
 bad_frames = 0
@@ -198,7 +200,7 @@ def find_contours(frame, firstFrame, avg):
     return cnts, gray, gray_smooth, avg
 
 
-def manage_fishes(cnts, fishes, gray):
+def manage_fishes(cnts, fishes):
     # We loop over all the bbs of the contours that I can find.
     # For each one, I check to see if it matches - with some approximation - a fish
     # If so, I add ten to the fish's value
@@ -209,7 +211,6 @@ def manage_fishes(cnts, fishes, gray):
             continue
         (x, y, w, h) = cv.boundingRect(c)
         possible_fish = make_fish(x, y, w, h)
-        draw_possible_fish(gray, possible_fish)
         match_possible_fish_to_fishes(fishes, possible_fish)
 
 
@@ -262,13 +263,21 @@ def run(args):
 
         cnts, gray, gray_smooth, avg = find_contours(frame, firstFrame, avg)
 
-        manage_fishes(cnts, fishes, gray)
+        manage_fishes(cnts, fishes)
 
         update_fishes(fishes, frame)
 
         cv.imshow('tank-view', frame)
         if SHOW_VISION:
-            cv.imshow('vision-view', gray)
+            backtorgb = cv.cvtColor(gray, cv.COLOR_GRAY2RGB)
+            cv.drawContours(backtorgb, cnts, -1,
+                            CONTOUR_COLOR, SMOOTH_TRAIL_WIDTH)
+            for c in cnts:
+                (x, y, w, h) = cv.boundingRect(c)
+                possible_fish = make_fish(x, y, w, h)
+                draw_possible_fish(backtorgb, possible_fish)
+
+            cv.imshow('vision-view', backtorgb)
         out.write(frame)
 
         if cv.waitKey(1) == ord('p'):
