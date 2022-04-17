@@ -1,6 +1,4 @@
-from doctest import FAIL_FAST
 from random import randint
-from turtle import pos
 import numpy as np
 import imutils
 import cv2 as cv
@@ -9,7 +7,7 @@ import shutil
 import os
 
 MAX_DELTA = 75  # how far a fish might move before I decide it's too fast for a fish
-MAX_AGE = 50
+MAX_AGE = 50  # how much I can build a fishes age / confidence up before it peaks
 
 SCAN_COLOR = (255, 255, 255)
 SCAN_LINE_WIDTH = 1
@@ -23,31 +21,31 @@ TRAIL_COLOR = (50, 255, 0)
 TRAIL_LINE_WIDTH = 2
 TRAIL_POINT_SIZE = 2
 MAX_TRAIL_POINTS = 400
-DRAW_BOX = False
-DRAW_TRAIL_POINTS = False
-DRAW_TRAIL = False
-DRAW_SMOOTH_TRAIL = True
-DRAW_ID = True
 TRAIL_WIDTH = 2
 SMOOTH_TRAIL_WIDTH = 3
-DRAW_STATS = True
 
-SHOW_VISION = False
-SHOW_DELTA = False
-SHOW_THRESH = False
+DRAW_BOX = False  # draw bounding box of fish
+DRAW_TRAIL_POINTS = False  # draw trail as points
+DRAW_TRAIL = False  # draw trail as line - ends up quite jagged
+DRAW_SMOOTH_TRAIL = True  # draw trail as smoothed (average of last 10) points
+DRAW_ID = True  # draw the fish ID
+DRAW_STATS = True  # draw the stats panel bottom left
 
+SHOW_VISION = False  # show a separate window for the vision analysis
+SHOW_DELTA = False  # show the image deltas
+SHOW_THRESH = False  # show the dilated threshold analysis
+show_panels = True  # show the nice sliding panels. toggle with 't'
 
-bad_frames = 0
-fish_count = 0
 width = 0
 height = 0
-picture_count = 0
-show_panels = True
+fish_count = 0
+image_count = 0  # index screenshots
+slide = 0  # slide index for the sliding panels
 
 font = cv.FONT_HERSHEY_SIMPLEX
 
 
-def make_fish(x, y, w, h):
+def create_fish(x, y, w, h):
     return {
         'x': x,
         'y': y,
@@ -59,6 +57,7 @@ def make_fish(x, y, w, h):
 
 
 def draw_possible_fish(gray, possible_fish):
+    # this might be a fish, I will confirm later
     x = possible_fish['x']
     y = possible_fish['y']
     w = possible_fish['w']
@@ -67,15 +66,15 @@ def draw_possible_fish(gray, possible_fish):
 
 
 def close_enough(fish, possible_fish):
+    # is this possible fish close enough to this real one to match ? pythagoras
     delta_x = (fish['x'] - possible_fish['x']) ** 2
     delta_y = (fish['y'] - possible_fish['y']) ** 2
     dist = (delta_x + delta_y) ** 0.5
-    # print('{}.{} {}.{} = {}'.format(
-    #     fish['x'], fish['y'], possible_fish['x'], possible_fish['y'], dist))
     return dist < MAX_DELTA
 
 
 def average_point(fish, range):
+    # average out the last n points. used to show the id
     subset = fish['points'][-range:] if len(
         fish['points']) > range else fish['points']
     n = len(subset)
@@ -87,6 +86,7 @@ def average_point(fish, range):
 
 
 def smooth(points):
+    # smooth out the trail points
     if len(points) < 10:
         return points
     total_x = 0
@@ -103,21 +103,17 @@ def smooth(points):
 
 
 def draw_fish(frame, fish):
-    # draw the bounding box of the fish. this is not working well, it's picking up only tiny changes
-    # when the fish is moving slowly ...
+    # this is not working well, it's picking up only tiny changes when the fish is moving slowly ...
     if DRAW_BOX:
         cv.rectangle(
             frame, (fish['x'], fish['y']), (fish['x'] + fish['w'], fish['y'] + fish['h']), FISH_COLOR, FISH_LINE_WIDTH)
-    # draw the last 100 trail points
     if DRAW_TRAIL_POINTS:
         for point in fish['points']:
             cv.circle(frame, point, 2, (0, 255, 0), -1)
-    # draw the last 100 trail points as a line
     if DRAW_TRAIL:
         points = np.array(fish['points'])
         points = points.reshape((-1, 1, 2))
         cv.polylines(frame, [points], False, (0, 255, 0), TRAIL_WIDTH)
-    # draw the last 100 smoothed points as a line
     if DRAW_SMOOTH_TRAIL:
         points = np.array(smooth(fish['points']))
         points = points.reshape((-1, 1, 2))
@@ -126,13 +122,10 @@ def draw_fish(frame, fish):
 
 def draw_fish_id(frame, fish):
     global font
-    # draw id
     if DRAW_ID and len(fish['points']) > 0:
         point = average_point(fish, 10)
         displaced_point = (int(point[0] + fish['w']/2),
                            int(point[1] + fish['h']/1))
-        # cv.putText(frame, str(fish['id']), (fish['x'], fish['y']), font,
-        #            1, (0, 255, 255), 2, cv.LINE_AA)
         cv.putText(frame, str(fish['id']), displaced_point, font,
                    1, (255, 255, 255), 2, cv.LINE_AA)
 
@@ -217,7 +210,7 @@ def manage_fishes(cnts, fishes):
             w = 20
         if h < 10:
             h = 10
-        possible_fish = make_fish(x, y, w, h)
+        possible_fish = create_fish(x, y, w, h)
         match_possible_fish_to_fishes(fishes, possible_fish)
 
 
@@ -251,16 +244,47 @@ def draw_stats(frame, fishes, active):
                1, (255, 255, 255), 2, cv.LINE_AA)
 
 
+def show_sliding_panels(frame, backtorgb, thresh, frameDelta):
+    global slide
+
+    quarter = int(width / 4)
+    extra_width = width + quarter
+    x = ((0 + slide) % extra_width) - quarter
+    a = x if x >= 0 else 0
+    w = quarter if x >= 0 else quarter + x
+    working = backtorgb
+    frame[0:height, a:a + w] = working[0:height, a:a + w]
+    cv.putText(frame, 'contours and bb', (x, 30), font,
+               1, (255, 255, 255), 2, cv.LINE_AA)
+    x = ((quarter + slide) % extra_width) - quarter
+    a = x if x >= 0 else 0
+    w = quarter if x >= 0 else quarter + x
+    working = cv.cvtColor(thresh, cv.COLOR_GRAY2RGB)
+    frame[0:height, a:a + w] = working[0:height, a:a + w]
+    cv.putText(frame, 'dilated threshold', (x, 30), font,
+               1, (255, 255, 255), 2, cv.LINE_AA)
+    x = ((2 * quarter + slide) % extra_width) - quarter
+    a = x if x >= 0 else 0
+    w = quarter if x >= 0 else quarter + x
+    working = cv.cvtColor(frameDelta, cv.COLOR_GRAY2RGB)
+    frame[0:height, a:a + w] = working[0:height, a:a + w]
+    cv.putText(frame, 'image deltas', (x, 30), font,
+               1, (255, 255, 255), 2, cv.LINE_AA)
+    x = ((-quarter + slide) % extra_width) - quarter
+    cv.putText(frame, 'result', (x, 30), font,
+               1, (255, 255, 255), 2, cv.LINE_AA)
+    slide = slide + 10
+
+
 def run(args):
 
-    global bad_frames
-    global picture_count
+    global image_count
     global width
     global height
     global font
     global show_panels
 
-    slide = 0
+    bad_frames = 0
 
     cap, out = setup_video(args)
 
@@ -297,40 +321,14 @@ def run(args):
                             CONTOUR_COLOR, SMOOTH_TRAIL_WIDTH)
             for c in cnts:
                 (x, y, w, h) = cv.boundingRect(c)
-                possible_fish = make_fish(x, y, w, h)
+                possible_fish = create_fish(x, y, w, h)
                 draw_possible_fish(backtorgb, possible_fish)
 
             if SHOW_VISION:
                 cv.imshow('vision-view', backtorgb)
 
             if show_panels:
-                quarter = int(width / 4)
-                extra_width = width + quarter
-                x = ((0 + slide) % extra_width) - quarter
-                a = x if x >= 0 else 0
-                w = quarter if x >= 0 else quarter + x
-                working = backtorgb
-                frame[0:height, a:a + w] = working[0:height, a:a + w]
-                cv.putText(frame, 'contours and bb', (x, 30), font,
-                           1, (255, 255, 255), 2, cv.LINE_AA)
-                x = ((quarter + slide) % extra_width) - quarter
-                a = x if x >= 0 else 0
-                w = quarter if x >= 0 else quarter + x
-                working = cv.cvtColor(thresh, cv.COLOR_GRAY2RGB)
-                frame[0:height, a:a + w] = working[0:height, a:a + w]
-                cv.putText(frame, 'dilated threshold', (x, 30), font,
-                           1, (255, 255, 255), 2, cv.LINE_AA)
-                x = ((2 * quarter + slide) % extra_width) - quarter
-                a = x if x >= 0 else 0
-                w = quarter if x >= 0 else quarter + x
-                working = cv.cvtColor(frameDelta, cv.COLOR_GRAY2RGB)
-                frame[0:height, a:a + w] = working[0:height, a:a + w]
-                cv.putText(frame, 'image deltas', (x, 30), font,
-                           1, (255, 255, 255), 2, cv.LINE_AA)
-                x = ((-quarter + slide) % extra_width) - quarter
-                cv.putText(frame, 'result', (x, 30), font,
-                           1, (255, 255, 255), 2, cv.LINE_AA)
-                slide = slide + 10
+                show_sliding_panels(frame, backtorgb, thresh, frameDelta)
 
         if DRAW_STATS:
             draw_stats(frame, fishes, active)
@@ -343,15 +341,14 @@ def run(args):
         if key == ord('t'):
             show_panels = not show_panels
         if key == ord('p'):
-            print('saving images/{}.png'.format(picture_count))
-            cv.imwrite('images/{}.png'.format(picture_count), frame)
-            picture_count = picture_count + 1
+            print('saving images/{}.png'.format(image_count))
+            cv.imwrite('images/{}.png'.format(image_count), frame)
+            image_count = image_count + 1
         if key == ord('q'):
             break
 
         firstFrame = gray_smooth
 
-    # When everything done, release the capture
     cap.release()
     out.release()
     cv.destroyAllWindows()
