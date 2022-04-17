@@ -5,6 +5,8 @@ import numpy as np
 import imutils
 import cv2 as cv
 import sys
+import shutil
+import os
 
 MAX_DELTA = 75  # how far a fish might move before I decide it's too fast for a fish
 
@@ -269,12 +271,12 @@ def run(args):
             cv.imshow('vision-view', gray)
         out.write(frame)
 
+        if cv.waitKey(1) == ord('p'):
+            print('saving images/{}.png'.format(picture_count))
+            cv.imwrite('images/{}.png'.format(picture_count), frame)
+            picture_count = picture_count + 1
         if cv.waitKey(1) == ord('q'):
             break
-        if cv.waitKey(1) == ord('p'):
-            print('saving pictures/{}.png'.format(picture_count))
-            cv.imwrite('pictures/{}.png'.format(picture_count), frame)
-            picture_count = picture_count + 1
 
         firstFrame = gray_smooth
 
@@ -285,4 +287,9 @@ def run(args):
 
 
 if __name__ == '__main__':
+    try:
+        shutil.rmtree('images')
+    except FileNotFoundError:
+        pass
+    os.makedirs('images')
     run(sys.argv)
