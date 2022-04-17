@@ -44,6 +44,8 @@ width = 0
 height = 0
 picture_count = 0
 
+font = cv.FONT_HERSHEY_SIMPLEX
+
 
 def make_fish(x, y, w, h):
     return {
@@ -123,9 +125,9 @@ def draw_fish(frame, fish):
 
 
 def draw_fish_id(frame, fish):
+    global font
     # draw id
     if DRAW_ID and len(fish['points']) > 0:
-        font = cv.FONT_HERSHEY_SIMPLEX
         point = average_point(fish, 10)
         displaced_point = (int(point[0] + fish['w']/2),
                            int(point[1] + fish['h']/1))
@@ -189,23 +191,16 @@ def find_contours(frame, firstFrame):
     if len(firstFrame) == 0:
         firstFrame = gray_smooth
 
-    # this is nice to see the actual changes
     frameDelta = cv.absdiff(firstFrame, gray_smooth)
-    if SHOW_DELTA:
-        cv.imshow('delta', frameDelta)
 
     thresh = cv.threshold(frameDelta, 20, 255, cv.THRESH_BINARY)[1]
     thresh = cv.dilate(thresh, None, iterations=10)  # this is hight
-
-    # threshold and dilate the changes
-    if SHOW_THRESH:
-        cv.imshow('thresh', thresh)
 
     cnts = cv.findContours(thresh.copy(), cv.RETR_EXTERNAL,
                            cv.CHAIN_APPROX_SIMPLE)
     cnts = imutils.grab_contours(cnts)
 
-    return cnts, gray, gray_smooth
+    return cnts, gray, gray_smooth, frameDelta, thresh
 
 
 def manage_fishes(cnts, fishes):
@@ -239,17 +234,17 @@ def update_fishes(fishes, frame):
         if fish['age'] > 0:
             draw_fish(frame, fish)
             draw_fish_id(frame, fish)
-    if DRAW_STATS:
-        draw_stats(frame, fishes, active)
+    return active
 
 
 def draw_stats(frame, fishes, active):
     global width
     global height
     global fish_count
+    global font
+
     cv.rectangle(frame, (width - 250, height - 100),
                  (width, height), (0, 0, 0), -1)
-    font = cv.FONT_HERSHEY_SIMPLEX
     cv.putText(frame, 'active {}'.format(active), (width - 220, height - 60), font,
                1, (255, 255, 255), 2, cv.LINE_AA)
     cv.putText(frame, 'total   {}'.format(fish_count), (width - 220, height - 20), font,
@@ -262,6 +257,9 @@ def run(args):
     global picture_count
     global width
     global height
+    global font
+
+    slide = 0
 
     cap, out = setup_video(args)
 
@@ -277,17 +275,20 @@ def run(args):
                 break
             continue
 
-        cnts, gray, gray_smooth = find_contours(
+        cnts, gray, gray_smooth, frameDelta, thresh = find_contours(
             frame, firstFrame)
 
         manage_fishes(cnts, fishes)
 
-        update_fishes(fishes, frame)
+        active = update_fishes(fishes, frame)
 
-        if SHOW_PANELS:
-            pass
+        # this is nice to see the actual changes
+        if SHOW_DELTA:
+            cv.imshow('delta', frameDelta)
 
-        cv.imshow('tank-view', frame)
+        # threshold and dilate the changes
+        if SHOW_THRESH:
+            cv.imshow('thresh', thresh)
 
         if SHOW_VISION or SHOW_PANELS:
             backtorgb = cv.cvtColor(gray, cv.COLOR_GRAY2RGB)
@@ -300,6 +301,34 @@ def run(args):
 
             if SHOW_VISION:
                 cv.imshow('vision-view', backtorgb)
+
+            if SHOW_PANELS:
+                quarter = int(width / 4)
+                x = (0 + slide) % width
+                working = backtorgb
+                frame[0:height, x:x + quarter] = working[0:height, x:x + quarter]
+                cv.putText(frame, 'contours and bb', (x, 30), font,
+                           1, (255, 255, 255), 2, cv.LINE_AA)
+                x = (quarter + slide) % width
+                working = cv.cvtColor(thresh, cv.COLOR_GRAY2RGB)
+                frame[0:height, x:x + quarter] = working[0:height, x:x + quarter]
+                cv.putText(frame, 'dilated threshold', (x, 30), font,
+                           1, (255, 255, 255), 2, cv.LINE_AA)
+                x = (2 * quarter + slide) % width
+                working = cv.cvtColor(frameDelta, cv.COLOR_GRAY2RGB)
+                frame[0:height, x:x + quarter] = working[0:height, x:x + quarter]
+                cv.putText(frame, 'image deltas', (x, 30), font,
+                           1, (255, 255, 255), 2, cv.LINE_AA)
+                slide = slide + 10
+                x = (-quarter + slide) % width
+                cv.putText(frame, 'result', (x, 30), font,
+                           1, (255, 255, 255), 2, cv.LINE_AA)
+
+        if DRAW_STATS:
+            draw_stats(frame, fishes, active)
+
+        cv.imshow('tank-view', frame)
+
         out.write(frame)
 
         if cv.waitKey(1) == ord('p'):
