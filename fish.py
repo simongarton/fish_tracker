@@ -32,7 +32,8 @@ TRAIL_WIDTH = 2
 SMOOTH_TRAIL_WIDTH = 3
 DRAW_STATS = True
 
-SHOW_VISION = True
+SHOW_PANELS = True
+SHOW_VISION = False
 SHOW_DELTA = False
 SHOW_THRESH = False
 
@@ -182,23 +183,16 @@ def setup_video(args):
     return cap, out
 
 
-def find_contours(frame, firstFrame, avg):
+def find_contours(frame, firstFrame):
     gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
     gray_smooth = cv.GaussianBlur(gray, (21, 21), 0)
     if len(firstFrame) == 0:
         firstFrame = gray_smooth
 
-    if avg is None:
-        avg = gray.copy().astype("float")
-        return [], gray, gray_smooth, avg
-
     # this is nice to see the actual changes
     frameDelta = cv.absdiff(firstFrame, gray_smooth)
     if SHOW_DELTA:
         cv.imshow('delta', frameDelta)
-
-    # is this doing anything ?
-    cv.accumulateWeighted(gray, avg, 0.5)
 
     thresh = cv.threshold(frameDelta, 20, 255, cv.THRESH_BINARY)[1]
     thresh = cv.dilate(thresh, None, iterations=10)  # this is hight
@@ -211,7 +205,7 @@ def find_contours(frame, firstFrame, avg):
                            cv.CHAIN_APPROX_SIMPLE)
     cnts = imutils.grab_contours(cnts)
 
-    return cnts, gray, gray_smooth, avg
+    return cnts, gray, gray_smooth
 
 
 def manage_fishes(cnts, fishes):
@@ -263,13 +257,14 @@ def run(args):
 
     global bad_frames
     global picture_count
+    global width
+    global height
 
     cap, out = setup_video(args)
 
     fishes = []
 
     firstFrame = []
-    avg = None
     while True:
         ret, frame = cap.read()
         if not ret:
@@ -279,15 +274,19 @@ def run(args):
                 break
             continue
 
-        cnts, gray, gray_smooth, avg = find_contours(
-            frame, firstFrame, avg)
+        cnts, gray, gray_smooth = find_contours(
+            frame, firstFrame)
 
         manage_fishes(cnts, fishes)
 
         update_fishes(fishes, frame)
 
+        if SHOW_PANELS:
+            pass
+
         cv.imshow('tank-view', frame)
-        if SHOW_VISION:
+
+        if SHOW_VISION or SHOW_PANELS:
             backtorgb = cv.cvtColor(gray, cv.COLOR_GRAY2RGB)
             cv.drawContours(backtorgb, cnts, -1,
                             CONTOUR_COLOR, SMOOTH_TRAIL_WIDTH)
@@ -296,7 +295,8 @@ def run(args):
                 possible_fish = make_fish(x, y, w, h)
                 draw_possible_fish(backtorgb, possible_fish)
 
-            cv.imshow('vision-view', backtorgb)
+            if SHOW_VISION:
+                cv.imshow('vision-view', backtorgb)
         out.write(frame)
 
         if cv.waitKey(1) == ord('p'):
