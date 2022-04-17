@@ -16,10 +16,13 @@ FISH_LINE_WIDTH = 2
 TRAIL_COLOR = (50, 255, 0)
 TRAIL_LINE_WIDTH = 2
 TRAIL_POINT_SIZE = 2
-MAX_TRAIL_POINTS = 100
+MAX_TRAIL_POINTS = 400
 DRAW_TRAIL_POINTS = False
-DRAW_TRAIL = True
+DRAW_TRAIL = False
+DRAW_SMOOTH_TRAIL = True
 DRAW_ID = True
+TRAIL_WIDTH = 2
+SMOOTH_TRAIL_WIDTH = 3
 
 SHOW_VISION = False
 
@@ -56,6 +59,33 @@ def close_enough(fish, possible_fish):
     return dist < MAX_DELTA
 
 
+def average_point(fish, range):
+    subset = fish['points'][-range:] if len(
+        fish['points']) > range else fish['points']
+    n = len(subset)
+    x = y = 0
+    for point in subset:
+        x = x + point[0]
+        y = y + point[1]
+    return (int(x * 1.0 / n), int(y * 1.0 / n))
+
+
+def smooth(points):
+    if len(points) < 10:
+        return points
+    total_x = 0
+    total_y = 0
+    for index in range(0, 10):
+        total_x = total_x + points[index][0]
+        total_y = total_y + points[index][1]
+    smoothed = []
+    for index in range(10, len(points)):
+        total_x = total_x + points[index][0] - points[index-10][0]
+        total_y = total_y + points[index][1] - points[index-10][1]
+        smoothed.append((int(total_x * 1.0/10), int(total_y * 1.0/10)))
+    return smoothed
+
+
 def draw_fish(frame, fish):
     # draw the bounding box of the fish. this is not working well, it's picking up only tiny changes
     # when the fish is moving slowly ...
@@ -69,11 +99,19 @@ def draw_fish(frame, fish):
     if DRAW_TRAIL:
         points = np.array(fish['points'])
         points = points.reshape((-1, 1, 2))
-        cv.polylines(frame, [points], False, (0, 255, 0), 1)
+        cv.polylines(frame, [points], False, (0, 255, 0), TRAIL_WIDTH)
+    # draw the last 100 smoothed points as a line
+    if DRAW_SMOOTH_TRAIL:
+        points = np.array(smooth(fish['points']))
+        points = points.reshape((-1, 1, 2))
+        cv.polylines(frame, [points], False, (0, 255, 0), SMOOTH_TRAIL_WIDTH)
     # draw name
-    if DRAW_ID:
+    if DRAW_ID and len(fish['points']) > 0:
         font = cv.FONT_HERSHEY_SIMPLEX
-        cv.putText(frame, str(fish['id']), (fish['x'], fish['y']), font,
+        point = average_point(fish, 10)
+        # cv.putText(frame, str(fish['id']), (fish['x'], fish['y']), font,
+        #            1, (0, 255, 255), 2, cv.LINE_AA)
+        cv.putText(frame, str(fish['id']), point, font,
                    1, (255, 255, 255), 2, cv.LINE_AA)
 
 
