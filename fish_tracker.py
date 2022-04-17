@@ -28,6 +28,8 @@ MAX_TRAIL_POINTS = 400
 TRAIL_WIDTH = 2
 SMOOTH_TRAIL_WIDTH = 3
 
+CLASSIFY_FISH = True  # attempt to classify fish by color. primitive and slow
+
 DRAW_BOX = False  # draw bounding box of fish
 DRAW_TRAIL_POINTS = False  # draw trail as points
 DRAW_TRAIL = False  # draw trail as line - ends up quite jagged
@@ -130,11 +132,84 @@ def draw_fish_id(frame, fish):
         point = average_point(fish, 10)
         displaced_point = (int(point[0] + fish['w']/2),
                            int(point[1] + fish['h']/1))
-        cv.putText(frame, str(fish['id']), displaced_point, font,
+        cv.putText(frame, '{} {}'.format(fish['id'], fish['species']), displaced_point, font,
                    1, (255, 255, 255), 2, cv.LINE_AA)
 
 
-def match_possible_fish_to_fishes(fishes, possible_fish):
+def classify_fish(fish, frame):
+    dimension = 50
+    x = fish['x']
+    y = fish['y']
+    if (x < dimension or y < dimension):
+        return ''
+    img = frame[y-dimension:y+dimension, x-dimension:x+dimension]
+
+    gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+    gray_smooth = cv.GaussianBlur(gray, (21, 21), 0)
+    thresh = cv.threshold(gray_smooth, 100, 255, cv.THRESH_BINARY)[1]
+    thresh = cv.dilate(thresh, None, iterations=2)
+
+    img[thresh == 0] = 0
+
+    blue_channel = img[:, :, 0]
+    green_channel = img[:, :, 1]
+    red_channel = img[:, :, 2]
+
+    r = g = b = hits = 0
+    LIMIT = 100
+
+    for x in range(0, 100):
+        for y in range(0, 100):
+            try:
+                if blue_channel[x][y] == 0:
+                    continue
+            except:
+                continue
+            hits = hits + 1
+            if blue_channel[x][y] > LIMIT:
+                b = b + 1
+            if green_channel[x][y] > LIMIT:
+                g = g + 1
+            if red_channel[x][y] > LIMIT:
+                r = r + 1
+
+    # cv.imshow('classify', img)
+    if hits == 0:
+        return ''
+    r1 = int(r * 100.0 / hits)
+    g1 = int(g * 100.0 / hits)
+    b1 = int(b * 100.0 / hits)
+    # cv.imwrite('images/{}.{}.{}.png'.format(r1, g1, b1), img)
+
+    if False:
+        gray = cv.cvtColor(img, cv.COLOR_BGR2GRAY)
+        gray_smooth = cv.GaussianBlur(gray, (21, 21), 0)
+        thresh = cv.threshold(gray_smooth, 100, 255, cv.THRESH_BINARY)[1]
+        thresh = cv.dilate(thresh, None, iterations=2)
+        cnts = cv.findContours(thresh.copy(), cv.RETR_EXTERNAL,
+                               cv.CHAIN_APPROX_SIMPLE)
+        cnts = imutils.grab_contours(cnts)
+
+        cv.drawContours(img, cnts, -1,
+                        CONTOUR_COLOR, SMOOTH_TRAIL_WIDTH)
+
+        cv.imshow('classify', img)
+        blue_channel = img[:, :, 0]
+        green_channel = img[:, :, 1]
+        red_channel = img[:, :, 2]
+
+    if b1 > g1 and b1 > r1:
+        return 'tetra'
+    if g1 > b1 and g1 > r1:
+        if (g1 > (b1 + 10)):
+            return 'plant'
+        return 'guppy'
+    if r1 > b1 and r1 > g1:
+        return 'guppy'
+    return ''
+
+
+def match_possible_fish_to_fishes(fishes, possible_fish, frame):
     # work out if this possible fish is close enough to any of the known fishes to be the same one
     global fish_count
     for fish in fishes:
@@ -147,6 +222,10 @@ def match_possible_fish_to_fishes(fishes, possible_fish):
             fish['y'] = possible_fish['y']
             fish['age'] = fish['age'] + \
                 5 if fish['age'] < MAX_AGE else fish['age']
+            if CLASSIFY_FISH:
+                fish['species'] = classify_fish(fish, frame)
+            else:
+                fish['species'] = ''
             return
     possible_fish['age'] = 5
     possible_fish['id'] = fish_count
@@ -207,14 +286,14 @@ def find_contours(frame, previous_frame):
     return cnts, gray, gray_smooth, frame_delta, thresh
 
 
-def manage_fishes(cnts, fishes):
+def manage_fishes(cnts, fishes, frame):
     for c in cnts:
         # minimum area of contour, trying to avoid noise. 200 and 20 both OK
         if cv.contourArea(c) < 20:
             continue
         (x, y, w, h) = cv.boundingRect(c)
         possible_fish = create_fish(x, y, w, h)
-        match_possible_fish_to_fishes(fishes, possible_fish)
+        match_possible_fish_to_fishes(fishes, possible_fish, frame)
 
 
 def update_fishes(fishes, frame):
@@ -331,7 +410,7 @@ def run(args):
             continue
 
         if not freeze:
-            manage_fishes(cnts, fishes)
+            manage_fishes(cnts, fishes, frame)
             active = update_fishes(fishes, frame)
 
         draw_fishes(fishes, frame)

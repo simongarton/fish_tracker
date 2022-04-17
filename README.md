@@ -44,4 +44,14 @@ Reducing these to one fish - and not confusing two fish swimming close to each o
 
 As a similar problem, when fish swim fast, they can move more than a fish length in a frame, and this means I lose track of the fish and create a second one.
 
-## Discrimination
+## Part 2 : Discrimination
+
+Now I need to figure out which species a fish is, so I can track them differently. I have red/blue tetras, yellow guppies, and black/brown tetras, all similar sizes.
+
+I fairly quickly was able to snapshot 100x100 pixels around each fish ...
+
+![alt text](screenshots/classify.png 'Classify as tetra')
+
+... but the next bit is hard. I want some way of getting the most dominant color, or counting how many pixels of each color there are ... but I need to generate contours and apply a mask first. With that done, I ran a rough count of how many red, blue and green pixels there were - splitting into each channel and assuming a limit - and came up with a very approximate classification. And it sort of works ...
+
+![alt text](screenshots/classified.png 'Tetras, plants and guppies')
