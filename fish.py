@@ -1,7 +1,28 @@
+from doctest import FAIL_FAST
 import numpy as np
 import imutils
 import cv2 as cv
-import json
+import sys
+
+MAX_DELTA = 100  # how far a fish might move before I decide it's too fast for a fish
+
+SCAN_COLOR = (255, 255, 255)
+SCAN_LINE_WIDTH = 1
+
+FISH_COLOR = (200, 50, 0)
+FISH_LINE_WIDTH = 2
+
+TRAIL_COLOR = (50, 255, 0)
+TRAIL_LINE_WIDTH = 2
+TRAIL_POINT_SIZE = 2
+DRAW_TRAIL_POINTS = True
+DRAW_TRAIL = False
+
+SHOW_VISION = False
+
+
+bad_frames = 0
+fish_count = 0
 
 
 def make_fish(x, y, w, h):
@@ -20,27 +41,32 @@ def draw_possible_fish(gray, possible_fish):
     y = possible_fish['y']
     w = possible_fish['w']
     h = possible_fish['h']
-    cv.rectangle(gray, (x, y), (x + w, y + h), (0, 255, 0), 2)
+    cv.rectangle(gray, (x, y), (x + w, y + h), SCAN_COLOR, SCAN_LINE_WIDTH)
 
 
 def close_enough(fish, possible_fish):
     delta_x = (fish['x'] - possible_fish['x']) ** 2
     delta_y = (fish['y'] - possible_fish['y']) ** 2
     dist = (delta_x + delta_y) ** 0.5
-    print('{}.{} {}.{} = {}'.format(
-        fish['x'], fish['y'], possible_fish['x'], possible_fish['y'], dist))
-    return dist < 100
+    # print('{}.{} {}.{} = {}'.format(
+    #     fish['x'], fish['y'], possible_fish['x'], possible_fish['y'], dist))
+    return dist < MAX_DELTA
 
 
 def draw_fish(frame, fish):
-    col_index = fish['age'] * 10
-    if col_index > 255:
-        col_index = 255
-    color = (col_index, 0, 0) if fish['age'] > 0 else (50, 50, 50)
-    # cv.rectangle(
-    #     frame, (fish['x'], fish['y']), (fish['x'] + fish['w'], fish['y'] + fish['h']), color, 5)
-    for point in fish['points']:
-        cv.circle(frame, point, 2, (0, 255, 0), -1)
+    # draw the bounding box of the fish. this is not working well, it's picking up only tiny changes
+    # when the fish is moving slowly ...
+    cv.rectangle(
+        frame, (fish['x'], fish['y']), (fish['x'] + fish['w'], fish['y'] + fish['h']), FISH_COLOR, FISH_LINE_WIDTH)
+    # draw the last 100 trail points
+    if DRAW_TRAIL_POINTS:
+        for point in fish['points']:
+            cv.circle(frame, point, 2, (0, 255, 0), -1)
+    # draw the last 100 trail points as a line
+    if DRAW_TRAIL:
+        points = np.array(fish['points'])
+        points = points.reshape((-1, 1, 2))
+        cv.polylines(frame, [points], False, (0, 255, 0), 1)
 
 
 def match_possible_fish_to_fishes(fishes, possible_fish):
@@ -58,14 +84,32 @@ def match_possible_fish_to_fishes(fishes, possible_fish):
     fishes.append(possible_fish)
 
 
-def run():
+def setup_video(args):
 
-    cap = cv.VideoCapture(1)
+    if len(args) == 1:
+        # WebCam : 0 is built in, 1 is USB
+        cap = cv.VideoCapture(1)
+    else:
+        # Stream from MP4
+        cap = cv.VideoCapture(args[1])
+
     if not cap.isOpened():
-        print("Cannot open camera")
+        print("Cannot open video stream")
         exit()
 
-    conf = json.load(open('conf.json'))
+    width = int(cap.get(cv.CAP_PROP_FRAME_WIDTH))
+    height = int(cap.get(cv.CAP_PROP_FRAME_HEIGHT))
+    fps = cap.get(cv.CAP_PROP_FPS)
+
+    out = cv.VideoWriter(
+        'out/out.avi', cv.VideoWriter_fourcc('M', 'J', 'P', 'G'), fps, (width, height))
+
+    return cap, out
+
+
+def run(args):
+
+    (cap, out) = setup_video(args)
 
     fishes = []
 
@@ -74,8 +118,11 @@ def run():
     while True:
         ret, frame = cap.read()
         if not ret:
-            print("Can't receive frame (stream end?). Exiting ...")
-            break
+            bad_frames = bad_frames + 1
+            if bad_frames > 100:
+                print("Can't receive frame (stream end?). Exiting after 100 failures.")
+                break
+            continue
 
         gray = cv.cvtColor(frame, cv.COLOR_BGR2GRAY)
         gray_smooth = cv.GaussianBlur(gray, (21, 21), 0)
@@ -118,8 +165,11 @@ def run():
 
             draw_fish(frame, fish)
 
-        cv.imshow('actual', frame)
-        # cv.imshow('possible', gray)
+        cv.imshow('tank-view', frame)
+        if SHOW_VISION:
+            cv.imshow('vision-view', gray)
+        out.write(frame)
+
         if cv.waitKey(1) == ord('q'):
             break
 
@@ -127,8 +177,9 @@ def run():
 
     # When everything done, release the capture
     cap.release()
+    out.release()
     cv.destroyAllWindows()
 
 
 if __name__ == '__main__':
-    run()
+    run(sys.argv)
