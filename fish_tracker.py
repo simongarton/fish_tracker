@@ -1,3 +1,4 @@
+from multiprocessing.sharedctypes import Value
 from random import randint
 import numpy as np
 import imutils
@@ -5,6 +6,7 @@ import cv2 as cv
 import sys
 import shutil
 import os
+import math
 
 # Simon Garton
 # simon.garton@gmail.com
@@ -28,7 +30,7 @@ MAX_TRAIL_POINTS = 400
 TRAIL_WIDTH = 2
 SMOOTH_TRAIL_WIDTH = 3
 
-CLASSIFY_FISH = True  # attempt to classify fish by color. primitive and slow
+CLASSIFY_FISH = False  # attempt to classify fish by color. primitive and slow
 
 DRAW_BOX = False  # draw bounding box of fish
 DRAW_TRAIL_POINTS = False  # draw trail as points
@@ -40,6 +42,7 @@ DRAW_STATS = True  # draw the stats panel bottom left
 SHOW_VISION = False  # show a separate window for the vision analysis
 SHOW_DELTA = False  # show the image deltas
 SHOW_THRESH = False  # show the dilated threshold analysis
+SHOW_GALLERY = True  # show the fish I am currently tracking
 show_panels = True  # show the nice sliding panels. toggle with 't'
 
 width = 0
@@ -372,6 +375,30 @@ def show_sliding_panels(frame, original_frame, backtorgb, thresh, frame_delta):
                1, (255, 255, 255), 2, cv.LINE_AA)
 
 
+def show_gallery(fishes, frame, blank_image):
+    global width
+    global height
+    dimension = 100
+    half_dimension = 50
+    across = int(width/dimension)
+    down = int(height/dimension)
+    for fish in fishes:
+        x = fish['x']
+        y = fish['y']
+        id = fish['id']
+        if id >= across * down:
+            continue
+        if (x < half_dimension or y < half_dimension):
+            continue
+        if x > (width - half_dimension) or y > (height - half_dimension):
+            continue
+        img = frame[y-half_dimension:y+half_dimension,
+                    x-half_dimension:x+half_dimension]
+        new_x = (id % across) * dimension
+        new_y = 0 + (math.trunc((id / down)) * dimension)
+        blank_image[new_y:new_y + dimension:, new_x:new_x + dimension] = img
+
+
 def run(args):
 
     global image_count
@@ -403,6 +430,8 @@ def run(args):
                 continue
 
         frame = original_frame.copy()
+        import numpy as np
+        blank_image = np.zeros((height, width, 3), np.uint8)
         cnts, gray, gray_smooth, frame_delta, thresh = find_contours(
             frame, last_frame)
         if len(frame_delta) == 0:
@@ -414,6 +443,10 @@ def run(args):
             active = update_fishes(fishes, frame)
 
         draw_fishes(fishes, frame)
+
+        if SHOW_GALLERY:
+            show_gallery(fishes, original_frame, blank_image)
+            cv.imshow('gallery', blank_image)
 
         if SHOW_DELTA:
             cv.imshow('delta', frame_delta)
